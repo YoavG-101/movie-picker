@@ -1,12 +1,7 @@
-# run in terminal:
-# pip install -r requirements.txt
-# then:
-# streamlit run app.py
 import streamlit as st
 import anthropic
 import requests
 import json
-import os
 
 # ── Config ────────────────────────────────────────────────────────────────────
 TMDB_BASE = "https://api.themoviedb.org/3"
@@ -19,128 +14,6 @@ st.set_page_config(
     layout="centered",
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'DM Sans', sans-serif;
-    background-color: #0d0d0d;
-    color: #f0ece4;
-}
-
-.stApp { background-color: #0d0d0d; }
-
-h1, h2, h3 { font-family: 'Playfair Display', serif; }
-
-.hero-title {
-    font-family: 'Playfair Display', serif;
-    font-size: 3rem;
-    font-weight: 700;
-    color: #f0ece4;
-    line-height: 1.1;
-    margin-bottom: 0.2rem;
-}
-.hero-sub {
-    font-family: 'DM Sans', sans-serif;
-    font-size: 1rem;
-    color: #888;
-    font-weight: 300;
-    margin-bottom: 2.5rem;
-    letter-spacing: 0.04em;
-}
-.question-label {
-    font-family: 'Playfair Display', serif;
-    font-style: italic;
-    font-size: 1.25rem;
-    color: #c9a96e;
-    margin-bottom: 0.5rem;
-}
-.step-indicator {
-    font-size: 0.75rem;
-    color: #555;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    margin-bottom: 1.5rem;
-}
-.movie-card {
-    background: #161616;
-    border: 1px solid #2a2a2a;
-    border-radius: 16px;
-    padding: 2rem;
-    margin-top: 1rem;
-}
-.movie-title-display {
-    font-family: 'Playfair Display', serif;
-    font-size: 2rem;
-    font-weight: 700;
-    color: #f0ece4;
-    margin-bottom: 0.25rem;
-}
-.movie-meta {
-    color: #666;
-    font-size: 0.85rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin-bottom: 1rem;
-}
-.badge {
-    display: inline-block;
-    background: #1e1e1e;
-    border: 1px solid #333;
-    border-radius: 20px;
-    padding: 0.2rem 0.75rem;
-    font-size: 0.78rem;
-    color: #aaa;
-    margin-right: 0.4rem;
-    margin-bottom: 0.4rem;
-}
-.rating-badge {
-    background: #1a1a0a;
-    border: 1px solid #c9a96e;
-    color: #c9a96e;
-}
-.pitch-text {
-    font-size: 1rem;
-    color: #ccc;
-    line-height: 1.75;
-    border-left: 2px solid #c9a96e;
-    padding-left: 1rem;
-    margin-top: 1.25rem;
-    font-style: italic;
-}
-.divider {
-    border: none;
-    border-top: 1px solid #222;
-    margin: 2rem 0;
-}
-/* Button styling */
-.stButton > button {
-    background: #c9a96e !important;
-    color: #0d0d0d !important;
-    border: none !important;
-    border-radius: 8px !important;
-    font-family: 'DM Sans', sans-serif !important;
-    font-weight: 500 !important;
-    padding: 0.6rem 1.5rem !important;
-    letter-spacing: 0.04em !important;
-    transition: opacity 0.2s !important;
-}
-.stButton > button:hover { opacity: 0.85 !important; }
-
-.stTextInput > div > div > input,
-.stSelectbox > div > div,
-.stTextArea textarea {
-    background-color: #161616 !important;
-    border: 1px solid #2a2a2a !important;
-    color: #f0ece4 !important;
-    border-radius: 8px !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
 # ── Session state init ────────────────────────────────────────────────────────
 def init_state():
     defaults = {
@@ -151,6 +24,7 @@ def init_state():
         "movie_data": None,
         "pitch": None,
         "done": False,
+        "dark_mode": True,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -158,10 +32,180 @@ def init_state():
 
 init_state()
 
+# ── Load API keys from Streamlit secrets ──────────────────────────────────────
+try:
+    st.session_state.anthropic_key = st.secrets["ANTHROPIC_API_KEY"]
+    st.session_state.tmdb_key      = st.secrets["TMDB_API_KEY"]
+except Exception:
+    # Fallback: prompt user manually (for local dev without secrets file)
+    if "anthropic_key" not in st.session_state or "tmdb_key" not in st.session_state:
+        with st.form("keys_form"):
+            st.markdown("**Enter your API keys to get started**")
+            ak = st.text_input("Anthropic API Key", type="password")
+            tk = st.text_input("TMDB API Key", type="password",
+                               help="Free at themoviedb.org — Settings → API")
+            submitted = st.form_submit_button("Let's go →")
+            if submitted:
+                if ak and tk:
+                    st.session_state.anthropic_key = ak
+                    st.session_state.tmdb_key = tk
+                    st.rerun()
+                else:
+                    st.error("Both keys are required.")
+        st.stop()
+
+# ── Theme colors ──────────────────────────────────────────────────────────────
+dark = st.session_state.dark_mode
+
+if dark:
+    BG       = "#0f1117"
+    SURFACE  = "#1c1f2e"
+    BORDER   = "#2e3250"
+    TEXT     = "#eef0f8"
+    MUTED    = "#8b90b0"
+    ACCENT   = "#7c9fff"
+    ACCENT2  = "#ff8c69"
+    BTN_TEXT = "#0f1117"
+else:
+    BG       = "#f5f6fa"
+    SURFACE  = "#ffffff"
+    BORDER   = "#d0d4e8"
+    TEXT     = "#1a1d2e"
+    MUTED    = "#5a5f7a"
+    ACCENT   = "#3a5fd9"
+    ACCENT2  = "#c44b2b"
+    BTN_TEXT = "#ffffff"
+
+st.markdown(f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,700;1,400&family=Outfit:wght@300;400;500;600&display=swap');
+
+html, body, [class*="css"] {{
+    font-family: 'Outfit', sans-serif;
+    background-color: {BG};
+    color: {TEXT};
+}}
+.stApp {{ background-color: {BG}; }}
+h1,h2,h3 {{ font-family: 'Fraunces', serif; }}
+
+.hero-title {{
+    font-family: 'Fraunces', serif;
+    font-size: 2.8rem;
+    font-weight: 700;
+    color: {TEXT};
+    line-height: 1.1;
+    margin-bottom: 0.2rem;
+}}
+.hero-sub {{
+    font-size: 1rem;
+    color: {MUTED};
+    font-weight: 300;
+    margin-bottom: 0.5rem;
+    letter-spacing: 0.03em;
+}}
+.step-indicator {{
+    font-size: 0.72rem;
+    color: {MUTED};
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 0.75rem;
+}}
+.question-label {{
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 1.3rem;
+    color: {ACCENT};
+    margin-bottom: 0.75rem;
+    margin-top: 0.5rem;
+}}
+.movie-title-display {{
+    font-family: 'Fraunces', serif;
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: {TEXT};
+    margin-bottom: 0.2rem;
+    line-height: 1.2;
+}}
+.movie-meta {{
+    color: {MUTED};
+    font-size: 0.82rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.9rem;
+}}
+.badge {{
+    display: inline-block;
+    background: {SURFACE};
+    border: 1px solid {BORDER};
+    border-radius: 20px;
+    padding: 0.2rem 0.8rem;
+    font-size: 0.78rem;
+    color: {MUTED};
+    margin-right: 0.35rem;
+    margin-bottom: 0.4rem;
+}}
+.rating-badge {{
+    background: transparent;
+    border: 1.5px solid {ACCENT2};
+    color: {ACCENT2};
+    font-weight: 600;
+}}
+.pitch-text {{
+    font-size: 0.98rem;
+    color: {TEXT};
+    line-height: 1.8;
+    border-left: 3px solid {ACCENT};
+    padding: 1rem 1rem 1rem 1.2rem;
+    margin-top: 1.25rem;
+    font-style: italic;
+    background: {SURFACE};
+    border-radius: 0 8px 8px 0;
+}}
+.divider {{
+    border: none;
+    border-top: 1px solid {BORDER};
+    margin: 1.75rem 0;
+}}
+.stButton > button {{
+    background: {ACCENT} !important;
+    color: {BTN_TEXT} !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-family: 'Outfit', sans-serif !important;
+    font-weight: 600 !important;
+    padding: 0.55rem 1.4rem !important;
+    letter-spacing: 0.03em !important;
+    transition: opacity 0.2s !important;
+}}
+.stButton > button:hover {{ opacity: 0.88 !important; }}
+.stTextInput > div > div > input,
+.stTextArea textarea {{
+    background-color: {SURFACE} !important;
+    border: 1.5px solid {BORDER} !important;
+    color: {TEXT} !important;
+    border-radius: 8px !important;
+    font-family: 'Outfit', sans-serif !important;
+}}
+.stTextInput > div > div > input:focus,
+.stTextArea textarea:focus {{
+    border-color: {ACCENT} !important;
+    box-shadow: 0 0 0 2px {ACCENT}33 !important;
+}}
+div[data-testid="stRadio"] label {{ color: {TEXT} !important; }}
+.picks-label {{
+    font-size: 0.72rem;
+    color: {MUTED};
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+}}
+</style>
+""", unsafe_allow_html=True)
+
 
 # ── API helpers ────────────────────────────────────────────────────────────────
-def get_movie_candidates(profile: dict, tmdb_key: str) -> list[dict]:
-    """LLM Call #1 — Claude picks movie titles based on user profile."""
+def get_movie_candidates(profile: dict) -> list[str]:
+    """LLM Call #1 — Claude picks 5 movie titles as JSON."""
     client = anthropic.Anthropic(api_key=st.session_state.anthropic_key)
     prompt = f"""You are a brilliant film curator. Based on this viewer profile, suggest exactly 5 movies.
 
@@ -182,35 +226,31 @@ No explanation. Just the JSON array."""
         max_tokens=300,
         messages=[{"role": "user", "content": prompt}]
     )
-    raw = message.content[0].text.strip()
-    titles = json.loads(raw)
-    return titles
+    return json.loads(message.content[0].text.strip())
 
 
-def tmdb_search(title: str, tmdb_key: str) -> dict | None:
+def tmdb_search(title: str) -> dict | None:
     """Search TMDB for a title and return enriched movie data."""
     r = requests.get(f"{TMDB_BASE}/search/movie",
-                     params={"api_key": tmdb_key, "query": title, "page": 1})
+                     params={"api_key": st.session_state.tmdb_key, "query": title, "page": 1})
     results = r.json().get("results", [])
     if not results:
         return None
-    movie = results[0]
-    # Fetch full details for runtime
-    details = requests.get(f"{TMDB_BASE}/movie/{movie['id']}",
-                           params={"api_key": tmdb_key}).json()
+    details = requests.get(f"{TMDB_BASE}/movie/{results[0]['id']}",
+                           params={"api_key": st.session_state.tmdb_key}).json()
     return {
-        "title": details.get("title", title),
-        "year": details.get("release_date", "")[:4],
-        "rating": round(details.get("vote_average", 0), 1),
-        "runtime": details.get("runtime", "?"),
-        "genres": [g["name"] for g in details.get("genres", [])[:3]],
-        "overview": details.get("overview", ""),
+        "title":      details.get("title", title),
+        "year":       details.get("release_date", "")[:4],
+        "rating":     round(details.get("vote_average", 0), 1),
+        "runtime":    details.get("runtime", "?"),
+        "genres":     [g["name"] for g in details.get("genres", [])[:3]],
+        "overview":   details.get("overview", ""),
         "poster_url": TMDB_IMG + details["poster_path"] if details.get("poster_path") else None,
     }
 
 
 def generate_pitch(profile: dict, movie: dict) -> str:
-    """LLM Call #2 — Claude writes a personalized pitch for the chosen movie."""
+    """LLM Call #2 — Claude writes a warm, personalized pitch."""
     client = anthropic.Anthropic(api_key=st.session_state.anthropic_key)
     prompt = f"""You are a warm, witty film friend writing a short personalized recommendation.
 
@@ -225,8 +265,8 @@ MOVIE:
 - Genres: {', '.join(movie['genres'])}
 - Overview: {movie['overview']}
 
-Write 2-3 sentences explaining why THIS person will love THIS movie TONIGHT. 
-Be specific — reference their mood and who they're watching with. 
+Write 2-3 sentences explaining why THIS person will love THIS movie TONIGHT.
+Be specific — reference their mood and who they're watching with.
 Sound like a friend, not a reviewer. No spoilers."""
 
     message = client.messages.create(
@@ -240,7 +280,7 @@ Sound like a friend, not a reviewer. No spoilers."""
 # ── Questions ──────────────────────────────────────────────────────────────────
 QUESTIONS = [
     ("mood",          "How are you feeling tonight?",
-     "text", None,
+     "text",   None,
      "e.g. tired and cozy, hyped and energetic, emotionally drained…"),
 
     ("watching_with", "Who's joining you?",
@@ -248,7 +288,7 @@ QUESTIONS = [
      None),
 
     ("genres",        "Any genres you're craving — or want to avoid?",
-     "text", None,
+     "text",   None,
      "e.g. I love thrillers, please no horror or musicals"),
 
     ("runtime",       "How long do you want the movie to be?",
@@ -256,31 +296,25 @@ QUESTIONS = [
      None),
 
     ("recent",        "Anything you've watched recently? Loved it or hated it?",
-     "text", None,
+     "text",   None,
      "e.g. Loved Oppenheimer, couldn't get through The Notebook"),
 ]
 
 
-# ── UI ─────────────────────────────────────────────────────────────────────────
-st.markdown('<div class="hero-title">🎬 Movie Night Picker</div>', unsafe_allow_html=True)
-st.markdown('<div class="hero-sub">Answer five quick questions. Get your perfect film.</div>', unsafe_allow_html=True)
+# ── Header row ────────────────────────────────────────────────────────────────
+col_title, col_toggle = st.columns([5, 1])
+with col_title:
+    st.markdown('<div class="hero-title">🎬 Movie Night Picker</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero-sub">Answer five quick questions. Get your perfect film.</div>',
+                unsafe_allow_html=True)
+with col_toggle:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("☀️" if dark else "🌙", key="theme_toggle"):
+        st.session_state.dark_mode = not st.session_state.dark_mode
+        st.rerun()
 
-# ── API key gate ───────────────────────────────────────────────────────────────
-if "anthropic_key" not in st.session_state or "tmdb_key" not in st.session_state:
-    with st.form("keys_form"):
-        st.markdown("**Enter your API keys to get started**")
-        ak = st.text_input("Anthropic API Key", type="password")
-        tk = st.text_input("TMDB API Key", type="password",
-                           help="Free at themoviedb.org — Settings → API")
-        submitted = st.form_submit_button("Let's go →")
-        if submitted:
-            if ak and tk:
-                st.session_state.anthropic_key = ak
-                st.session_state.tmdb_key = tk
-                st.rerun()
-            else:
-                st.error("Both keys are required.")
-    st.stop()
+st.markdown('<hr class="divider">', unsafe_allow_html=True)
+
 
 # ── Intake questions ───────────────────────────────────────────────────────────
 if not st.session_state.done:
@@ -289,18 +323,18 @@ if not st.session_state.done:
     if step < len(QUESTIONS):
         key, question, qtype, options, placeholder = QUESTIONS[step]
 
-        # Progress
         st.markdown(f'<div class="step-indicator">Question {step+1} of {len(QUESTIONS)}</div>',
                     unsafe_allow_html=True)
-        progress = (step) / len(QUESTIONS)
-        st.progress(progress)
-
+        st.progress(step / len(QUESTIONS))
         st.markdown(f'<div class="question-label">{question}</div>', unsafe_allow_html=True)
 
         if qtype == "text":
-            answer = st.text_input("", placeholder=placeholder, key=f"input_{step}",
-                                   label_visibility="collapsed")
-            if st.button("Next →", key=f"btn_{step}"):
+            # Wrap in st.form so pressing Enter submits
+            with st.form(key=f"form_{step}"):
+                answer    = st.text_input("", placeholder=placeholder,
+                                          label_visibility="collapsed")
+                submitted = st.form_submit_button("Next →")
+            if submitted:
                 if answer.strip():
                     st.session_state.profile[key] = answer.strip()
                     st.session_state.step += 1
@@ -309,44 +343,47 @@ if not st.session_state.done:
                     st.warning("Please type something first!")
 
         elif qtype == "select":
-            answer = st.radio("", options, key=f"input_{step}", label_visibility="collapsed")
-            if st.button("Next →", key=f"btn_{step}"):
+            with st.form(key=f"form_{step}"):
+                answer    = st.radio("", options, label_visibility="collapsed")
+                submitted = st.form_submit_button("Next →")
+            if submitted:
                 st.session_state.profile[key] = answer
                 st.session_state.step += 1
                 st.rerun()
 
+        # ── Back button (shown from step 1 onward) ─────────────────────────
+        if step > 0:
+            if st.button("← Back", key=f"back_{step}"):
+                st.session_state.step -= 1
+                st.session_state.profile.pop(key, None)
+                st.rerun()
+
     else:
-        # All questions answered — run the pipeline
+        # All answers collected — run pipeline
         st.progress(1.0)
         with st.spinner("Curating your perfect movie…"):
             try:
-                titles = get_movie_candidates(
-                    st.session_state.profile, st.session_state.tmdb_key)
-
-                candidates = []
-                for t in titles:
-                    data = tmdb_search(t, st.session_state.tmdb_key)
-                    if data:
-                        candidates.append(data)
+                titles     = get_movie_candidates(st.session_state.profile)
+                candidates = [d for t in titles if (d := tmdb_search(t))]
 
                 if not candidates:
                     st.error("Couldn't find movies on TMDB. Try again!")
                     st.stop()
 
-                st.session_state.candidates = candidates
-                st.session_state.candidate_index = 0
-
-                # Generate pitch for first candidate
                 pitch = generate_pitch(st.session_state.profile, candidates[0])
-                st.session_state.pitch = pitch
-                st.session_state.movie_data = candidates[0]
-                st.session_state.done = True
+
+                st.session_state.candidates      = candidates
+                st.session_state.candidate_index = 0
+                st.session_state.movie_data      = candidates[0]
+                st.session_state.pitch           = pitch
+                st.session_state.done            = True
                 st.rerun()
 
             except json.JSONDecodeError:
                 st.error("Claude returned unexpected data. Please try again.")
             except Exception as e:
                 st.error(f"Something went wrong: {e}")
+
 
 # ── Results ────────────────────────────────────────────────────────────────────
 if st.session_state.done and st.session_state.movie_data:
@@ -355,54 +392,57 @@ if st.session_state.done and st.session_state.movie_data:
     idx   = st.session_state.candidate_index
     total = len(st.session_state.candidates)
 
-    st.markdown(f'<div class="step-indicator">Tonight\'s pick {idx+1} of {total}</div>',
+    st.markdown(f'<div class="picks-label">Tonight\'s pick · {idx+1} of {total}</div>',
                 unsafe_allow_html=True)
 
-    with st.container():
-        col1, col2 = st.columns([1, 2], gap="large")
+    col1, col2 = st.columns([1, 2], gap="large")
+    with col1:
+        if movie["poster_url"]:
+            st.image(movie["poster_url"], use_container_width=True)
+        else:
+            st.markdown("🎬")
 
-        with col1:
-            if movie["poster_url"]:
-                st.image(movie["poster_url"], use_container_width=True)
-            else:
-                st.markdown("🎬")
+    with col2:
+        st.markdown(f'<div class="movie-title-display">{movie["title"]}</div>',
+                    unsafe_allow_html=True)
+        st.markdown(
+            f'<div class="movie-meta">{movie["year"]} &nbsp;·&nbsp; {movie["runtime"]} min</div>',
+            unsafe_allow_html=True)
 
-        with col2:
-            st.markdown(f'<div class="movie-title-display">{movie["title"]}</div>',
-                        unsafe_allow_html=True)
-            st.markdown(
-                f'<div class="movie-meta">{movie["year"]} &nbsp;·&nbsp; {movie["runtime"]} min</div>',
-                unsafe_allow_html=True)
-
-            # Badges
-            badges = ""
-            badges += f'<span class="badge rating-badge">⭐ {movie["rating"]}</span>'
-            for g in movie["genres"]:
-                badges += f'<span class="badge">{g}</span>'
-            st.markdown(badges, unsafe_allow_html=True)
-
-            st.markdown(f'<div class="pitch-text">{pitch}</div>', unsafe_allow_html=True)
+        badges = f'<span class="badge rating-badge">⭐ {movie["rating"]}</span>'
+        for g in movie["genres"]:
+            badges += f'<span class="badge">{g}</span>'
+        st.markdown(badges, unsafe_allow_html=True)
+        st.markdown(f'<div class="pitch-text">{pitch}</div>', unsafe_allow_html=True)
 
     st.markdown('<hr class="divider">', unsafe_allow_html=True)
 
-    col_a, col_b = st.columns(2)
+    col_a, col_b, col_c = st.columns(3)
     with col_a:
         if idx + 1 < total:
-            if st.button("🔄 Try next pick"):
-                next_idx = idx + 1
-                next_movie = st.session_state.candidates[next_idx]
+            if st.button("🔄 Next pick"):
+                next_movie = st.session_state.candidates[idx + 1]
                 with st.spinner("Writing your pitch…"):
                     pitch = generate_pitch(st.session_state.profile, next_movie)
-                st.session_state.candidate_index = next_idx
-                st.session_state.movie_data = next_movie
-                st.session_state.pitch = pitch
+                st.session_state.candidate_index += 1
+                st.session_state.movie_data       = next_movie
+                st.session_state.pitch            = pitch
                 st.rerun()
         else:
-            st.markdown('<span style="color:#555;font-size:0.85rem">No more picks!</span>',
-                        unsafe_allow_html=True)
+            st.caption("No more picks!")
+
     with col_b:
+        if st.button("← Change answers"):
+            st.session_state.done        = False
+            st.session_state.step        = len(QUESTIONS) - 1
+            st.session_state.candidates  = []
+            st.session_state.movie_data  = None
+            st.session_state.pitch       = None
+            st.rerun()
+
+    with col_c:
         if st.button("↩ Start over"):
-            for k in ["step","profile","candidates","candidate_index",
-                      "movie_data","pitch","done"]:
+            for k in ["step", "profile", "candidates", "candidate_index",
+                      "movie_data", "pitch", "done"]:
                 del st.session_state[k]
             st.rerun()
