@@ -67,14 +67,14 @@ if dark:
     ACCENT2  = "#ff8c69"
     BTN_TEXT = "#0f1117"
 else:
-    BG       = "#f5f6fa"
-    SURFACE  = "#ffffff"
-    BORDER   = "#d0d4e8"
-    TEXT     = "#1a1d2e"
-    MUTED    = "#5a5f7a"
-    ACCENT   = "#3a5fd9"
-    ACCENT2  = "#c44b2b"
-    BTN_TEXT = "#ffffff"
+    BG =       "#F5F6FA"
+    SURFACE =  "#FFFFFF"
+    BORDER =   "#D0D4E8"
+    TEXT =     "#1A1D2E"
+    MUTED =    "#5A5F7A"
+    ACCENT =   "#3A5FD9"
+    ACCENT2 =  "#C44B2B"
+    BTN_TEXT = "#FFFFFF"
 
 st.markdown(f"""
 <style>
